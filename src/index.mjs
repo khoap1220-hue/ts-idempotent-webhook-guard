@@ -117,6 +117,57 @@ export class FileWalIdempotencyStore {
    * @param {number} [now]
    * @returns {number} Number of active records retained
    */
+  /**
+   * Compactor that returns detailed metrics.
+   * @param {{ maxAgeMs?: number }} [options]
+   * @returns {{ beforeLines: number, afterLines: number, bytesReclaimed: number }}
+   */
+  compactWal(options = {}) {
+    if (!fs.existsSync(this.filePath)) {
+      return { beforeLines: 0, afterLines: 0, bytesReclaimed: 0 };
+    }
+    const beforeSize = fs.statSync(this.filePath).size;
+    const content = fs.readFileSync(this.filePath, "utf8");
+    const rawLines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const beforeLines = rawLines.length;
+
+    const now = Date.now();
+    const map = new Map();
+    for (const line of rawLines) {
+      try {
+        const parsed = JSON.parse(line.trim());
+        if (parsed && typeof parsed.key === "string" && typeof parsed.expiresAt === "number") {
+          const isExpired = parsed.expiresAt <= now;
+          const recordedAt = parsed.recordedAt ?? (parsed.expiresAt - 300_000);
+          const isTooOld = options.maxAgeMs !== undefined && (now - recordedAt > options.maxAgeMs);
+          if (!isExpired && !isTooOld) {
+            map.set(parsed.key, { value: parsed.value, expiresAt: parsed.expiresAt, recordedAt });
+          } else {
+            map.delete(parsed.key);
+          }
+        }
+      } catch {
+        // ignore malformed lines
+      }
+    }
+
+    const tmpPath = `${this.filePath}.tmp.${Date.now()}_${process.pid}`;
+    const linesToWrite = [];
+    for (const [key, entry] of map.entries()) {
+      linesToWrite.push(JSON.stringify({ key, value: entry.value, expiresAt: entry.expiresAt, recordedAt: entry.recordedAt }));
+    }
+    fs.writeFileSync(tmpPath, linesToWrite.length > 0 ? linesToWrite.join("\n") + "\n" : "", "utf8");
+    fs.renameSync(tmpPath, this.filePath);
+
+    const afterSize = fs.statSync(this.filePath).size;
+    const bytesReclaimed = Math.max(0, beforeSize - afterSize);
+    return {
+      beforeLines,
+      afterLines: linesToWrite.length,
+      bytesReclaimed,
+    };
+  }
+
   compact(now = Date.now()) {
     const active = this.loadActiveEntries(now);
     const tmpPath = `${this.filePath}.tmp.${process.pid}`;
@@ -174,6 +225,22 @@ export class IdempotencyGuard {
    * @param {() => Promise<T>} handler
    * @returns {Promise<{ result: T, replayed: boolean }>}
    */
+  /**
+   * Compactor on IdempotencyGuard / IdempotentWebhookGuard.
+   * Rewrites WAL atomically, deduplicates entries, and prunes expired records.
+   * @param {{ maxAgeMs?: number }} [options]
+   * @returns {{ beforeLines: number, afterLines: number, bytesReclaimed: number }}
+   */
+  compactWal(options = {}) {
+    if (!this.store) {
+      return { beforeLines: 0, afterLines: 0, bytesReclaimed: 0 };
+    }
+    const result = this.store.compactWal(options);
+    // Reload active entries in-memory to maintain consistency
+    this.completed = this.store.loadActiveEntries();
+    return result;
+  }
+
   async execute(key, handler) {
     if (!key || typeof key !== "string" || !key.trim()) {
       throw new Error("Idempotency key must be a non-empty string");
@@ -430,3 +497,5 @@ export function redactSensitiveFields(payload, seen = new WeakSet()) {
   }
   return out;
 }
+
+export const IdempotentWebhookGuard = IdempotencyGuard;

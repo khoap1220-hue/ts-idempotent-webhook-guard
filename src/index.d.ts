@@ -4,6 +4,7 @@ export declare class FileWalIdempotencyStore {
   loadActiveEntries(now?: number): Map<string, { value: any; expiresAt: number }>;
   appendEntry(key: string, entry: { value: any; expiresAt: number }): void;
   compact(now?: number): number;
+  compactWal(options?: { maxAgeMs?: number }): CompactWalResult;
 }
 
 export interface IdempotencyOptions {
@@ -21,6 +22,7 @@ export declare class IdempotencyGuard {
   constructor(options?: IdempotencyOptions);
   has(key: string): boolean;
   execute<T>(key: string, handler: () => Promise<T>): Promise<IdempotencyExecutionResult<T>>;
+  compactWal(options?: { maxAgeMs?: number }): CompactWalResult;
 }
 
 export declare function verifyTimingSafeToken(
@@ -61,3 +63,11 @@ export declare function validateWebhookUrl(
 ): WebhookValidationResult;
 
 export declare function redactSensitiveFields<T>(payload: T): T;
+
+export interface CompactWalResult {
+  beforeLines: number;
+  afterLines: number;
+  bytesReclaimed: number;
+}
+
+export declare const IdempotentWebhookGuard: typeof IdempotencyGuard;

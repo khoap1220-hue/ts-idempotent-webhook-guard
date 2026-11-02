@@ -6,6 +6,7 @@ import * as path from "node:path";
 import {
   FileWalIdempotencyStore,
   IdempotencyGuard,
+  IdempotentWebhookGuard,
   computeHmacSha256Hex,
   redactSensitiveFields,
   validateWebhookUrl,
@@ -137,4 +138,51 @@ test("redactSensitiveFields scrubs nested secrets, JWTs, Luhn PAN cards, and cir
   assert.ok(sanitized.note.includes("[REDACTED_TOKEN]"));
   assert.ok(sanitized.note.includes("[REDACTED_CARD_0366]"));
   assert.equal(sanitized.self, "[CIRCULAR_REF]");
+});
+
+
+test("IdempotentWebhookGuard.compactWal() deduplicates duplicate JSONL lines and prunes expired records atomically", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wal-compact-"));
+  const walFile = path.join(tmpDir, "compact.wal.jsonl");
+
+  const store = new FileWalIdempotencyStore(walFile);
+  const guard = new IdempotentWebhookGuard({ ttlMs: 60_000, store });
+
+  // Append records
+  await guard.execute("k1", async () => ({ res: 1 }));
+  await guard.execute("k2", async () => ({ res: 2 }));
+
+  // Simulate extra/duplicate entries written to disk
+  fs.appendFileSync(
+    walFile,
+    JSON.stringify({ key: "k1", value: { res: "updated" }, expiresAt: Date.now() + 60_000, recordedAt: Date.now() }) + "\n",
+    "utf8"
+  );
+  // Simulate an expired entry
+  fs.appendFileSync(
+    walFile,
+    JSON.stringify({ key: "expired_key", value: { res: "old" }, expiresAt: Date.now() - 5_000, recordedAt: Date.now() - 10_000 }) + "\n",
+    "utf8"
+  );
+
+  const initialStat = fs.statSync(walFile);
+  const initialContent = fs.readFileSync(walFile, "utf8").trim().split("\n");
+  assert.equal(initialContent.length, 4);
+
+  // Compact WAL
+  const metrics = guard.compactWal();
+  assert.equal(metrics.beforeLines, 4);
+  assert.equal(metrics.afterLines, 2);
+  assert.ok(metrics.bytesReclaimed > 0, "bytesReclaimed must be positive after pruning duplicate/expired records");
+
+  // Verify unexpired keys remain intact and accessible
+  assert.equal(guard.has("k1"), true);
+  assert.equal(guard.has("k2"), true);
+  assert.equal(guard.has("expired_key"), false);
+
+  const resK1 = await guard.execute("k1", async () => ({ res: "should_not_run" }));
+  assert.equal(resK1.replayed, true);
+  assert.deepEqual(resK1.result, { res: "updated" });
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 });
