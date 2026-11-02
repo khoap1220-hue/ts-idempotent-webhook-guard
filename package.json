@@ -1,16 +1,20 @@
 {
   "name": "ts-idempotent-webhook-guard",
-  "version": "1.0.0",
-  "description": "Zero-dependency TypeScript/Node.js toolkit for concurrent Promise.all webhook idempotency locking, strict HTTPS endpoint validation, exponential backoff retry, and recursive secret redaction.",
+  "version": "1.1.0",
+  "description": "Zero-dependency TypeScript/Node.js toolkit for concurrent Promise.all webhook idempotency locking with persistent JSONL WAL storage, constant-time HMAC-SHA256 & Stripe replay verification, SSRF-safe HTTPS validation, and cycle-safe secret redaction.",
   "type": "module",
   "main": "./src/index.mjs",
   "types": "./src/index.d.ts",
+  "bin": {
+    "webhook-guard": "./bin/webhook-guard.mjs"
+  },
   "scripts": {
     "test": "node --test test/guard.test.mjs"
   },
   "keywords": [
     "idempotency",
     "webhook",
+    "hmac",
     "fintech",
     "stellar",
     "security",
