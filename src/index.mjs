@@ -430,3 +430,24 @@ export function redactSensitiveFields(payload, seen = new WeakSet()) {
   }
   return out;
 }
+
+/**
+ * Compacts a JSONL Write-Ahead Log file by keeping only the latest valid entry per key.
+ * @param {string} walPath
+ * @returns {number} Number of unique retained keys
+ */
+export function compactWalFile(walPath) {
+  if (!fs.existsSync(walPath)) return 0;
+  const raw = fs.readFileSync(walPath, "utf8");
+  const latest = new Map();
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const obj = JSON.parse(line);
+      if (obj && typeof obj.key === "string") latest.set(obj.key, obj);
+    } catch {}
+  }
+  const compacted = Array.from(latest.values()).map((v) => JSON.stringify(v)).join("\n") + (latest.size ? "\n" : "");
+  fs.writeFileSync(walPath, compacted, "utf8");
+  return latest.size;
+}
