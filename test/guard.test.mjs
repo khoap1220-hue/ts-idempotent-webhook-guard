@@ -6,6 +6,9 @@ import * as path from "node:path";
 import {
   FileWalIdempotencyStore,
   IdempotencyGuard,
+  IdempotentWebhookGuard,
+  validateStellarAnchorWebhook,
+  deriveStellarAnchorIdempotencyKey,
   computeHmacSha256Hex,
   redactSensitiveFields,
   validateWebhookUrl,
@@ -137,4 +140,60 @@ test("redactSensitiveFields scrubs nested secrets, JWTs, Luhn PAN cards, and cir
   assert.ok(sanitized.note.includes("[REDACTED_TOKEN]"));
   assert.ok(sanitized.note.includes("[REDACTED_CARD_0366]"));
   assert.equal(sanitized.self, "[CIRCULAR_REF]");
+});
+
+
+test("validateStellarAnchorWebhook, deriveStellarAnchorIdempotencyKey, and IdempotentWebhookGuard replay suppression", async () => {
+  const validCompleted = {
+    transaction: {
+      id: "sep24-tx-1001",
+      status: "completed",
+      stellar_transaction_id: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      amount_in: "100.00",
+      amount_out: "99.50",
+    },
+  };
+  const valRes = validateStellarAnchorWebhook(validCompleted);
+  assert.equal(valRes.valid, true);
+  const key = deriveStellarAnchorIdempotencyKey(validCompleted);
+  assert.equal(
+    key,
+    "sep:sep24-tx-1001:completed:a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
+  );
+
+  // Missing stellar_transaction_id on completed
+  const missingStellarId = {
+    transaction: {
+      id: "sep24-tx-1002",
+      status: "completed",
+    },
+  };
+  assert.equal(validateStellarAnchorWebhook(missingStellarId).valid, false);
+
+  // Pending status without stellar_transaction_id
+  const pendingPayload = {
+    transaction: {
+      id: "sep24-tx-1003",
+      status: "pending_anchor",
+    },
+  };
+  assert.equal(validateStellarAnchorWebhook(pendingPayload).valid, true);
+  assert.equal(deriveStellarAnchorIdempotencyKey(pendingPayload), "sep:sep24-tx-1003:pending_anchor:none");
+
+  // Invalid status
+  assert.equal(validateStellarAnchorWebhook({ transaction: { id: "tx-4", status: "unknown_status" } }).valid, false);
+
+  // Duplicate callback suppression via IdempotentWebhookGuard
+  const guard = new IdempotentWebhookGuard({ ttlMs: 10_000 });
+  let processCount = 0;
+  const processHook = async () => {
+    processCount += 1;
+    return { ok: true };
+  };
+
+  const r1 = await guard.execute(key, processHook);
+  const r2 = await guard.execute(key, processHook);
+  assert.equal(r1.replayed, false);
+  assert.equal(r2.replayed, true);
+  assert.equal(processCount, 1);
 });

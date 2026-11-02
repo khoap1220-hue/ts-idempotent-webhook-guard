@@ -61,3 +61,13 @@ export declare function validateWebhookUrl(
 ): WebhookValidationResult;
 
 export declare function redactSensitiveFields<T>(payload: T): T;
+
+export interface StellarAnchorValidationResult {
+  valid: boolean;
+  reason?: string;
+  transaction?: any;
+}
+
+export declare function validateStellarAnchorWebhook(payload: any): StellarAnchorValidationResult;
+export declare function deriveStellarAnchorIdempotencyKey(payload: any): string;
+export declare const IdempotentWebhookGuard: typeof IdempotencyGuard;
