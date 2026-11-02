@@ -10,6 +10,8 @@ import {
   redactSensitiveFields,
   validateWebhookUrl,
   verifyHmacSha256Signature,
+  verifyTimestampedSignature,
+  verifyWebhookSignature,
   verifyStripeSignatureHeader,
   verifyTimingSafeToken,
 } from "../src/index.mjs";
@@ -137,4 +139,47 @@ test("redactSensitiveFields scrubs nested secrets, JWTs, Luhn PAN cards, and cir
   assert.ok(sanitized.note.includes("[REDACTED_TOKEN]"));
   assert.ok(sanitized.note.includes("[REDACTED_CARD_0366]"));
   assert.equal(sanitized.self, "[CIRCULAR_REF]");
+});
+
+
+test("verifyTimestampedSignature supports t=...,v1=... replay window tolerance and rejects tampers", () => {
+  const secret = "whsec_live_anchor_key_2026";
+  const body = JSON.stringify({ event: "charge.completed", id: "ch_999" });
+  const now = 1_730_500_000;
+  const sig = computeHmacSha256Hex(`${now}.${body}`, secret);
+  const validHeader = `t=${now},v1=${sig}`;
+
+  // Valid signature within tolerance window
+  assert.equal(
+    verifyTimestampedSignature(body, validHeader, secret, { nowSeconds: now + 60, toleranceSeconds: 300 }),
+    true
+  );
+  assert.equal(
+    verifyWebhookSignature(body, validHeader, secret, { nowSeconds: now + 60, toleranceSeconds: 300 }),
+    true
+  );
+
+  // Expired replay attempt (>300s)
+  assert.equal(
+    verifyTimestampedSignature(body, validHeader, secret, { nowSeconds: now + 301, toleranceSeconds: 300 }),
+    false
+  );
+
+  // Future timestamp beyond tolerance window
+  assert.equal(
+    verifyTimestampedSignature(body, validHeader, secret, { nowSeconds: now - 350, toleranceSeconds: 300 }),
+    false
+  );
+
+  // Tampered body
+  assert.equal(
+    verifyTimestampedSignature(body + "tampered", validHeader, secret, { nowSeconds: now, toleranceSeconds: 300 }),
+    false
+  );
+
+  // Malformed header strings
+  assert.equal(verifyTimestampedSignature(body, "invalid_header", secret), false);
+  assert.equal(verifyTimestampedSignature(body, "t=abc,v1=123", secret), false);
+  assert.equal(verifyTimestampedSignature(body, "", secret), false);
+  assert.equal(verifyTimestampedSignature(body, null, secret), false);
 });

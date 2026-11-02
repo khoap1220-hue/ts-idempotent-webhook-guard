@@ -430,3 +430,62 @@ export function redactSensitiveFields(payload, seen = new WeakSet()) {
   }
   return out;
 }
+
+
+/**
+ * Verifies an HMAC-SHA256 timestamped signature header (`t=<unix_sec>,v1=<hex>`)
+ * signing `${timestamp}.${rawBody}` and enforces replay tolerance (default 300s).
+ *
+ * @param {string | Buffer} rawBody
+ * @param {string | undefined | null} signatureHeader
+ * @param {string} secret
+ * @param {{ toleranceSeconds?: number, nowSeconds?: number }} [options]
+ * @returns {boolean}
+ */
+export function verifyTimestampedSignature(rawBody, signatureHeader, secret, options = {}) {
+  if (typeof signatureHeader !== "string" || !signatureHeader.trim() || !secret || typeof secret !== "string") {
+    return false;
+  }
+  let timestamp = NaN;
+  const v1Signatures = [];
+  for (const part of signatureHeader.split(",")) {
+    const [k, v] = part.trim().split("=", 2);
+    if (k === "t" && v) {
+      timestamp = Number(v);
+    } else if (k === "v1" && v) {
+      v1Signatures.push(v.trim());
+    }
+  }
+
+  if (!Number.isInteger(timestamp) || timestamp <= 0 || v1Signatures.length === 0) {
+    return false;
+  }
+
+  const tolerance = options.toleranceSeconds ?? 300;
+  const nowSec = options.nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSec - timestamp) > tolerance) {
+    return false;
+  }
+
+  const bodyStr = Buffer.isBuffer(rawBody) ? rawBody.toString("utf8") : String(rawBody);
+  const signedPayload = `${timestamp}.${bodyStr}`;
+  const expectedHex = computeHmacSha256Hex(signedPayload, secret);
+  const expectedBuf = Buffer.from(expectedHex, "hex");
+
+  for (const cand of v1Signatures) {
+    if (/^[0-9a-fA-F]{64}$/.test(cand)) {
+      const candBuf = Buffer.from(cand.toLowerCase(), "hex");
+      if (candBuf.length === expectedBuf.length && crypto.timingSafeEqual(candBuf, expectedBuf)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function verifyWebhookSignature(rawBody, signatureHeader, secret, options = {}) {
+  if (typeof signatureHeader === "string" && signatureHeader.includes("t=")) {
+    return verifyTimestampedSignature(rawBody, signatureHeader, secret, options);
+  }
+  return verifyHmacSha256Signature(rawBody, signatureHeader, secret);
+}

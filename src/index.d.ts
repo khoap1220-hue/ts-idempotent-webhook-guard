@@ -61,3 +61,17 @@ export declare function validateWebhookUrl(
 ): WebhookValidationResult;
 
 export declare function redactSensitiveFields<T>(payload: T): T;
+
+export declare function verifyTimestampedSignature(
+  rawBody: string | Buffer,
+  signatureHeader: string | undefined | null,
+  secret: string,
+  options?: { toleranceSeconds?: number; nowSeconds?: number }
+): boolean;
+
+export declare function verifyWebhookSignature(
+  rawBody: string | Buffer,
+  signatureHeader: string | undefined | null,
+  secret: string,
+  options?: { toleranceSeconds?: number; nowSeconds?: number }
+): boolean;
