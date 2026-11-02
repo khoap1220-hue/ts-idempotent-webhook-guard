@@ -10,9 +10,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const PRIVATE_HOST_PATTERNS = [
-  /^localhost$/i,
+  /(?:^|\.)localhost$/i,
   /\.local$/i,
-  /^metadata\.google\.internal$/i,
+  /(?:^|\.)internal$/i,
   /^127\./,
   /^0\./,
   /^10\./,
@@ -20,8 +20,9 @@ const PRIVATE_HOST_PATTERNS = [
   /^169\.254\./,
   /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./,
   /^172\.(1[6-9]|2\d|3[0-1])\./,
+  /^\[(?:0+:){7}0*[01]\]$/i,
   /^\[::1?\]$/i,
-  /^\[::ffff:(?:127\.|7f00:|0?a00:|c0a8:|a9fe:)/i,
+  /^\[::ffff:(?:0+:0+|127\.|7f[0-9a-f]{2}:|0?a[0-9a-f]{2}:|ac1[0-9a-f]:|c0a8:|a9fe:|64(?:[4-7][0-9a-f]):)/i,
   /^\[f[cd][0-9a-f]{2}:/i,
   /^\[fe[89ab][0-9a-f]:/i,
 ];
@@ -320,8 +321,8 @@ export function verifyStripeSignatureHeader(rawBody, stripeHeader, secret, optio
     }
   }
 
-  if (!Number.isFinite(timestamp) || timestamp <= 0 || v1Signatures.length === 0) {
-    return { valid: false, reason: "Malformed Stripe-Signature header (missing t or v1)" };
+  if (!Number.isInteger(timestamp) || timestamp <= 0 || v1Signatures.length === 0) {
+    return { valid: false, reason: "Malformed Stripe-Signature header (missing integer t or v1)" };
   }
 
   const tolerance = options.toleranceSeconds ?? 300;

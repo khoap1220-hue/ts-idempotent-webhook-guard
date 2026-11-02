@@ -44,8 +44,13 @@ if (cmd === "validate-url") {
   console.log(JSON.stringify({ valid }, null, 2));
   process.exit(valid ? 0 : 2);
 } else if (cmd === "redact") {
-  const input = JSON.parse(args[1] || "{}");
-  console.log(JSON.stringify(redactSensitiveFields(input), null, 2));
+  try {
+    const input = JSON.parse(args[1] || "{}");
+    console.log(JSON.stringify(redactSensitiveFields(input), null, 2));
+  } catch (err) {
+    console.error(JSON.stringify({ error: "Invalid JSON payload", detail: String(err?.message || err) }));
+    process.exit(2);
+  }
 } else {
   console.error(`Unknown command: ${cmd}`);
   process.exit(1);

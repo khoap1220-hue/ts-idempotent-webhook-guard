@@ -105,7 +105,12 @@ test("verifyTimingSafeToken performs constant-time Bearer and Apikey comparisons
 test("validateWebhookUrl enforces HTTPS and blocks IPv4/IPv6 SSRF loopback & metadata targets", () => {
   assert.equal(validateWebhookUrl("http://example.com/webhook").valid, false);
   assert.equal(validateWebhookUrl("https://127.0.0.1/hook").valid, false);
+  assert.equal(validateWebhookUrl("https://admin.localhost/hook").valid, false);
+  assert.equal(validateWebhookUrl("https://service.internal/hook").valid, false);
   assert.equal(validateWebhookUrl("https://[::ffff:127.0.0.1]/hook").valid, false);
+  assert.equal(validateWebhookUrl("https://[::ffff:172.16.0.1]/hook").valid, false);
+  assert.equal(validateWebhookUrl("https://[::ffff:0.0.0.0]/hook").valid, false);
+  assert.equal(validateWebhookUrl("https://[0:0:0:0:0:0:0:1]/hook").valid, false);
   assert.equal(validateWebhookUrl("https://[fd00::1]/hook").valid, false);
   assert.equal(validateWebhookUrl("https://metadata.google.internal/computeMetadata/v1/").valid, false);
   assert.equal(validateWebhookUrl("https://user:pass@api.example.com/hook").valid, false);
