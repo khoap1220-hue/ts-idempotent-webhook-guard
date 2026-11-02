@@ -1,0 +1,21 @@
+{
+  "name": "ts-idempotent-webhook-guard",
+  "version": "1.0.0",
+  "description": "Zero-dependency TypeScript/Node.js toolkit for concurrent Promise.all webhook idempotency locking, strict HTTPS endpoint validation, exponential backoff retry, and recursive secret redaction.",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "types": "./src/index.d.ts",
+  "scripts": {
+    "test": "node --test test/guard.test.mjs"
+  },
+  "keywords": [
+    "idempotency",
+    "webhook",
+    "fintech",
+    "stellar",
+    "security",
+    "typescript"
+  ],
+  "author": "Khoa Phan (@khoap1220-hue)",
+  "license": "MIT"
+}
