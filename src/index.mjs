@@ -430,3 +430,61 @@ export function redactSensitiveFields(payload, seen = new WeakSet()) {
   }
   return out;
 }
+
+
+export const STELLAR_SEP_STATUSES = new Set([
+  "completed",
+  "pending_external",
+  "pending_anchor",
+  "pending_stellar",
+  "pending_user_transfer_start",
+  "pending_user_transfer_complete",
+  "pending_customer_info_update",
+  "pending_transaction_info_update",
+  "incomplete",
+  "no_market",
+  "too_small",
+  "too_large",
+  "error",
+]);
+
+export function validateStellarAnchorWebhook(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { valid: false, reason: "Payload must be a non-null object" };
+  }
+  const tx = payload.transaction ?? payload;
+  if (!tx || typeof tx !== "object") {
+    return { valid: false, reason: "Payload must contain a valid transaction object" };
+  }
+  if (!tx.id || typeof tx.id !== "string" || !tx.id.trim()) {
+    return { valid: false, reason: "Missing or invalid transaction.id" };
+  }
+  if (!tx.status || typeof tx.status !== "string" || !STELLAR_SEP_STATUSES.has(tx.status.trim())) {
+    return { valid: false, reason: `Invalid transaction.status: ${tx.status}` };
+  }
+  if (tx.status.trim() === "completed") {
+    const stellarTxId = tx.stellar_transaction_id;
+    if (!stellarTxId || typeof stellarTxId !== "string" || !/^[0-9a-fA-F]{64}$/.test(stellarTxId.trim())) {
+      return {
+        valid: false,
+        reason: "Completed transaction must include a valid 64-hex stellar_transaction_id",
+      };
+    }
+  }
+  return { valid: true, transaction: tx };
+}
+
+export function deriveStellarAnchorIdempotencyKey(payload) {
+  const tx = payload?.transaction ?? payload;
+  if (!tx || typeof tx !== "object" || !tx.id || !tx.status) {
+    throw new Error("Cannot derive idempotency key: missing transaction.id or transaction.status");
+  }
+  const txId = String(tx.id).trim();
+  const status = String(tx.status).trim();
+  const stellarTxId = tx.stellar_transaction_id && String(tx.stellar_transaction_id).trim()
+    ? String(tx.stellar_transaction_id).trim()
+    : "none";
+  return `sep:${txId}:${status}:${stellarTxId}`;
+}
+
+export const IdempotentWebhookGuard = IdempotencyGuard;

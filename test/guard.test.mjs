@@ -138,3 +138,64 @@ test("redactSensitiveFields scrubs nested secrets, JWTs, Luhn PAN cards, and cir
   assert.ok(sanitized.note.includes("[REDACTED_CARD_0366]"));
   assert.equal(sanitized.self, "[CIRCULAR_REF]");
 });
+
+
+import * as child_process from "node:child_process";
+
+test("CLI --verify-payload / --verify-sep24 validates payload files with deterministic exit codes", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-guard-"));
+  const validFile = path.join(tmpDir, "valid-sep24.json");
+  const invalidFile = path.join(tmpDir, "invalid-sep24.json");
+  const binPath = path.resolve("bin/webhook-guard.mjs");
+
+  fs.writeFileSync(
+    validFile,
+    JSON.stringify({
+      transaction: {
+        id: "tx-sep24-99",
+        status: "completed",
+        stellar_transaction_id: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      },
+    }),
+    "utf8"
+  );
+
+  fs.writeFileSync(
+    invalidFile,
+    JSON.stringify({
+      transaction: {
+        id: "tx-sep24-bad",
+        status: "completed",
+        // missing stellar_transaction_id
+      },
+    }),
+    "utf8"
+  );
+
+  // Valid run exits 0
+  const validRes = child_process.spawnSync(process.execPath, [binPath, "--verify-payload", validFile, "--secret", "whsec_test"], {
+    encoding: "utf8",
+  });
+  assert.equal(validRes.status, 0);
+  const validJson = JSON.parse(validRes.stdout);
+  assert.equal(validJson.valid, true);
+  assert.equal(validJson.transactionId, "tx-sep24-99");
+  assert.ok(validJson.idempotencyKey.includes("sep:tx-sep24-99:completed:deadbeef"));
+  assert.ok(typeof validJson.signature === "string");
+
+  // Invalid payload exits 2
+  const invalidRes = child_process.spawnSync(process.execPath, [binPath, "--verify-payload", invalidFile], {
+    encoding: "utf8",
+  });
+  assert.equal(invalidRes.status, 2);
+  const invalidJson = JSON.parse(invalidRes.stdout);
+  assert.equal(invalidJson.valid, false);
+
+  // Subcommand alias --verify-sep24
+  const aliasRes = child_process.spawnSync(process.execPath, [binPath, "--verify-sep24", validFile], {
+    encoding: "utf8",
+  });
+  assert.equal(aliasRes.status, 0);
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
